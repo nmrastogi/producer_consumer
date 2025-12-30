@@ -16,7 +16,7 @@ func producer(id int, jobs chan<- int) {
 }
 
 func consumer(id int, jobs <-chan int, wg *sync.WaitGroup) {
-	defer wg.done();
+	defer wg.Done();
 	for job := range jobs{
 		fmt.Printf("consumer %d: consumed %d\n", id, job);
 		time.Sleep(time.Millisecond * 200);
