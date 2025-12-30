@@ -15,7 +15,7 @@ func producer(id int, jobs chan<- int) {
 	}
 }
 
-for consumer(id int, jobs <-chan int, wg *sync.WaitGroup) {
+func consumer(id int, jobs <-chan int, wg *sync.WaitGroup) {
 	defer wg.done();
 	for job := range jobs{
 		fmt.Printf("consumer %d: consumed %d\n", id, job);
