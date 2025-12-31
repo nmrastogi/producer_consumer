@@ -10,20 +10,22 @@ import (
 )
 
 func consumer(id int) {
-	read := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:  []string{"localhost:9092"},
-		Topic:    "jobs",
-		GroupID:  "worker-group",
+	reader := kafka.NewReader(kafka.ReaderConfig{
+		Brokers:        []string{"localhost:9092"},
+		Topic:          "jobs",
+		GroupID:        "worker-group",
+		GroupBalancers: []kafka.GroupBalancer{kafka.RangeGroupBalancer{}},
 	})
-	defer read.Close()
+	defer reader.Close()
 
 	for {
-		msg, err := read.ReadMessage(context.Background())
+		msg, err := reader.ReadMessage(context.Background())
 		if err != nil {
-			log.Printf("consumer %d error: %v, retrying...\n", id, err)
-			time.Sleep(time.Second) // Wait before retrying
+			log.Printf("consumer %d error: %v, retrying...", id, err)
+			time.Sleep(time.Second)
 			continue
 		}
+
 		fmt.Printf(
 			"consumer %d consumed %s (partition=%d offset=%d)\n",
 			id,
@@ -40,7 +42,5 @@ func main() {
 	go consumer(1)
 	go consumer(2)
 
-	select {} // block forever
+	select {}
 }
-
-
