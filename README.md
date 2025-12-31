@@ -132,31 +132,35 @@ The producer will:
 - Messages are formatted as "job-{id}"
 - Exit after all messages are sent
 
-#### Stopping Kafka
+#### Step 4: Stop and Clean Up Kafka
 
-**Stop the Kafka container:**
+**After you're done testing, stop and remove the Kafka container:**
 
+**Option 1: Stop first, then remove (recommended):**
 ```bash
+# Stop the container
 docker stop kafka
-```
 
-**Remove the Kafka container:**
-
-```bash
+# Remove the container
 docker rm kafka
 ```
 
-**Stop and remove in one command:**
-
+**Option 2: Stop and remove in one command:**
 ```bash
 docker stop kafka && docker rm kafka
 ```
 
-**Force remove (if container is stuck):**
-
+**Option 3: Force remove (if container is stuck or won't stop):**
 ```bash
 docker rm -f kafka
 ```
+
+**Verify the container is removed:**
+```bash
+docker ps -a --filter "name=kafka"
+```
+
+**Note:** If you see "No such container" or no output, the container has been successfully removed.
 
 #### Troubleshooting Commands
 
@@ -262,6 +266,9 @@ go run producer.go topic_init.go
 
 # 5. Cleanup (when done)
 docker stop kafka && docker rm kafka
+
+# Verify cleanup
+docker ps -a --filter "name=kafka"
 ```
 
 ## Notes
