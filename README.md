@@ -105,13 +105,11 @@ go run consumer.go topic_init.go
 
 The consumer will:
 - Wait for Kafka to be ready
-- Delete and recreate the "jobs" topic (to start fresh and reset offsets)
+- Ensure the "jobs" topic exists
 - Wait 5 seconds for Kafka to fully initialize
-- Start 2 consumer goroutines in the "worker-group" consumer group
-- Kafka assigns partitions to consumers (with 3 partitions and 2 consumers, load is shared)
+- Start 2 consumer goroutines in a consumer group
 - Process messages with retry logic and exponential backoff
 - Display consumed messages with partition and offset information
-- Both consumers will process messages from different partitions
 
 **Leave this terminal running** - the consumer will wait for messages.
 
@@ -128,12 +126,11 @@ go run producer.go topic_init.go
 
 The producer will:
 - Wait for Kafka to be ready
-- Delete and recreate the "jobs" topic (to start fresh)
+- Ensure the "jobs" topic exists
 - Create 2 producer goroutines
-- Each producer sends 10 messages (20 total) to the "jobs" topic
-- Uses Hash balancer with unique keys to distribute messages across all 3 partitions
-- Messages are formatted as "job-{id}" with keys like "p1-m0", "p1-m1", etc.
-- Exit after all messages are sent (~3 seconds)
+- Each producer sends 10 messages to the "jobs" topic
+- Messages are formatted as "job-{id}"
+- Exit after all messages are sent
 
 #### Step 4: Stop and Clean Up Kafka
 
@@ -224,13 +221,11 @@ producer_consumer/
 - **Channel closing**: Graceful shutdown pattern
 
 ### Kafka Pattern
-- **Producer**: Writing messages to Kafka topics with Hash balancer for partition distribution
-- **Consumer Groups**: Multiple consumers sharing work via partition assignment
-- **Partition Distribution**: Hash balancer with unique keys distributes messages across 3 partitions
-- **Load Balancing**: With 2 consumers and 3 partitions, Kafka assigns partitions evenly
+- **Producer**: Writing messages to Kafka topics
+- **Consumer Groups**: Multiple consumers sharing work
 - **Retry Logic**: Exponential backoff for error handling
-- **Topic Management**: Automatic topic deletion and recreation for fresh starts
-- **Connection Handling**: Timeout-based message reading with coordinator error handling
+- **Topic Management**: Automatic topic creation
+- **Connection Handling**: Timeout-based message reading
 
 ## Error Handling
 
@@ -239,24 +234,6 @@ The Kafka consumer includes robust error handling:
 - **Exponential backoff**: Increases wait time between retries (up to 10 seconds)
 - **Timeout handling**: Uses context timeouts for message reading
 - **Connection recovery**: Handles Kafka coordinator unavailability
-- **Coordinator errors**: Gracefully handles "Group Coordinator Not Available" errors during initialization
-
-## How Partition Distribution Works
-
-The system is configured to distribute messages across multiple partitions so both consumers can process messages concurrently:
-
-1. **Topic Configuration**: The "jobs" topic has 3 partitions (0, 1, 2)
-
-2. **Producer Distribution**: 
-   - Uses Hash balancer with unique keys per message (e.g., "p1-m0", "p1-m1", "p2-m0")
-   - Keys hash to different partitions, distributing messages evenly
-
-3. **Consumer Group Assignment**:
-   - Both consumers join the "worker-group" consumer group
-   - Kafka assigns partitions: Consumer 1 gets partitions 0 and 1, Consumer 2 gets partition 2
-   - This ensures both consumers process messages concurrently
-
-4. **Result**: Messages are distributed across all partitions, and both consumers actively process messages from their assigned partitions
 
 ## Complete Command Reference
 
@@ -294,153 +271,14 @@ docker stop kafka && docker rm kafka
 docker ps -a --filter "name=kafka"
 ```
 
-## Comparison: In-Memory Channels vs Kafka
-
-This repository demonstrates two different approaches to producer-consumer patterns. Here's a detailed comparison:
-
-### In-Memory Channels (`producer_consumer.go`)
-
-**Architecture:**
-- Uses Go's built-in channels (`chan int`)
-- All communication happens in-process
-- Single application, single process
-
-**Characteristics:**
-| Aspect | Details |
-|--------|---------|
-| **Communication** | In-memory channels (buffered, capacity 100) |
-| **Persistence** | None - messages lost if process crashes |
-| **Scalability** | Limited to single process |
-| **Distribution** | Cannot distribute across machines |
-| **Setup** | No external dependencies |
-| **Performance** | Very fast (in-memory) |
-| **Complexity** | Simple, minimal code |
-| **Synchronization** | Uses `sync.WaitGroup` for coordination |
-| **Message Type** | Integers (simple) |
-| **Error Handling** | Basic (none in this example) |
-
-**Code Structure:**
-```go
-// Simple channel-based communication
-jobs := make(chan int, 100)  // Buffered channel
-jobs <- job                   // Send
-job := <-jobs                 // Receive
-```
-
-**Use Cases:**
-- ✅ Simple in-process job queues
-- ✅ Learning Go concurrency patterns
-- ✅ High-performance, low-latency scenarios
-- ✅ Single-machine applications
-- ✅ Temporary message passing
-
----
-
-### Kafka-Based (`kafka/producer.go` + `kafka/consumer.go`)
-
-**Architecture:**
-- Uses Apache Kafka as message broker
-- Distributed system with external broker
-- Producers and consumers can run on different machines
-
-**Characteristics:**
-| Aspect | Details |
-|--------|---------|
-| **Communication** | Kafka topics with partitions |
-| **Persistence** | Messages persisted to disk |
-| **Scalability** | Horizontally scalable across machines |
-| **Distribution** | Can distribute across multiple servers |
-| **Setup** | Requires Kafka (Docker container) |
-| **Performance** | Fast but with network overhead |
-| **Complexity** | More complex, requires infrastructure |
-| **Synchronization** | Consumer groups handle coordination |
-| **Message Type** | Strings (can be any serialized data) |
-| **Error Handling** | Robust retry logic, exponential backoff |
-
-**Code Structure:**
-```go
-// Kafka-based communication
-writer := kafka.NewWriter(...)  // Producer
-writer.WriteMessages(ctx, msg)  // Send
-
-reader := kafka.NewReader(...)  // Consumer
-msg, err := reader.ReadMessage(ctx)  // Receive
-```
-
-**Use Cases:**
-- ✅ Distributed systems
-- ✅ Microservices communication
-- ✅ Event-driven architectures
-- ✅ Message durability requirements
-- ✅ Multi-machine deployments
-- ✅ Production systems requiring reliability
-
----
-
-### Side-by-Side Comparison
-
-| Feature | In-Memory Channels | Kafka |
-|---------|-------------------|-------|
-| **Setup Complexity** | ⭐ Simple (no setup) | ⭐⭐⭐ Requires Kafka |
-| **Performance** | ⭐⭐⭐ Very Fast | ⭐⭐ Fast (network overhead) |
-| **Persistence** | ❌ None | ✅ Disk persistence |
-| **Scalability** | ❌ Single process | ✅ Horizontal scaling |
-| **Distribution** | ❌ Single machine | ✅ Multi-machine |
-| **Fault Tolerance** | ❌ Process crash = data loss | ✅ Survives crashes |
-| **Message Ordering** | ✅ Guaranteed | ✅ Per partition |
-| **Load Balancing** | Manual (channel distribution) | ✅ Automatic (consumer groups) |
-| **Replay Capability** | ❌ No | ✅ Yes (offset management) |
-| **Monitoring** | ❌ Limited | ✅ Rich (Kafka metrics) |
-| **Dependencies** | None | Kafka broker required |
-| **Best For** | Simple, fast, in-process | Production, distributed systems |
-
-### When to Use Each
-
-**Use In-Memory Channels when:**
-- Building simple, single-process applications
-- Need maximum performance (low latency)
-- Don't need message persistence
-- Learning Go concurrency
-- Temporary message passing
-- All components run in the same process
-
-**Use Kafka when:**
-- Building distributed systems
-- Need message persistence and durability
-- Multiple services need to communicate
-- Need horizontal scalability
-- Building event-driven architectures
-- Production systems requiring reliability
-- Need message replay capabilities
-
-### Code Complexity Comparison
-
-**In-Memory (`producer_consumer.go`):**
-- 43 lines of code
-- No external dependencies
-- Simple channel operations
-- Basic synchronization with WaitGroup
-
-**Kafka (`producer.go` + `consumer.go` + `topic_init.go`):**
-- ~250 lines of code total
-- External dependency (kafka-go library)
-- Topic management
-- Error handling and retry logic
-- Consumer group coordination
-- Partition management
-
 ## Notes
 
-- **Topic Management**: Both producer and consumer delete and recreate the "jobs" topic to ensure a fresh start
-- **Partition Distribution**: The producer uses a Hash balancer with unique keys (p1-m0, p1-m1, etc.) to distribute messages across all 3 partitions
-- **Consumer Group**: The "worker-group" consumer group allows multiple consumers to share the workload via partition assignment
-- **Load Balancing**: With 2 consumers and 3 partitions, Kafka assigns:
-  - Consumer 1: Partitions 0 and 1
-  - Consumer 2: Partition 2
-- **Initialization**: Kafka needs 30-60 seconds to fully initialize the consumer offsets topic
-- **Error Handling**: The consumer automatically handles coordinator initialization errors and timeouts
-- **KRaft Mode**: The `KAFKA_OFFSETS_TOPIC_*` environment variables are important for KRaft mode to work properly
+- The Kafka consumer automatically handles coordinator initialization errors
+- The consumer group "worker-group" allows multiple consumers to share the workload
+- The producer auto-creates the "jobs" topic if it doesn't exist
+- Kafka needs 30-60 seconds to fully initialize the consumer offsets topic
 - Both programs demonstrate concurrent processing patterns in Go
+- The `KAFKA_OFFSETS_TOPIC_*` environment variables are important for KRaft mode to work properly
 
 ## License
 
