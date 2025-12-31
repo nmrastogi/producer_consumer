@@ -32,14 +32,29 @@ func consumer(id int) {
 
 		if err != nil {
 			// Check if it's a timeout error (context deadline exceeded)
-			if err == context.DeadlineExceeded || err.Error() == "context deadline exceeded" {
+			// The kafka-go library wraps the error, so we check the error message
+			errMsg := err.Error()
+			isTimeout := errors.Is(err, context.DeadlineExceeded) || 
+				strings.Contains(errMsg, "context deadline exceeded") ||
+				strings.Contains(errMsg, "deadline exceeded")
+			
+			// Check if it's a group coordinator error (transient initialization issue)
+			isCoordinatorError := strings.Contains(errMsg, "Group Coordinator Not Available") ||
+				strings.Contains(errMsg, "group coordinator") ||
+				strings.Contains(errMsg, "[15]")
+			
+			if isTimeout || isCoordinatorError {
 				timeoutCount++
-				// Only log timeout every 5th time to reduce noise
+				// Only log every 5th time to reduce noise
 				if timeoutCount%5 == 0 {
-					log.Printf("consumer %d: waiting for messages... (checked %d times)", id, timeoutCount)
+					if isCoordinatorError {
+						log.Printf("consumer %d: waiting for Kafka coordinator to initialize... (attempt %d)", id, timeoutCount)
+					} else {
+						log.Printf("consumer %d: waiting for messages... (checked %d times)", id, timeoutCount)
+					}
 				}
-				// Use shorter delay for timeouts (no messages available)
-				time.Sleep(500 * time.Millisecond)
+				// Use shorter delay for transient errors (coordinator initialization or no messages)
+				time.Sleep(1 * time.Second)
 				continue
 			} else {
 				log.Printf("consumer %d error: %v, retrying in %v...", id, err, retryDelay)
@@ -82,8 +97,10 @@ func main() {
 		log.Printf("Warning: Could not ensure topic exists: %v", err)
 	}
 
-	// Give Kafka a moment to initialize consumer offsets
-	time.Sleep(2 * time.Second)
+	// Give Kafka time to fully initialize, especially the consumer offsets topic
+	// This is important for KRaft mode where the __consumer_offsets topic needs to be created
+	log.Println("Waiting for Kafka to fully initialize (this may take 10-30 seconds)...")
+	time.Sleep(5 * time.Second)
 
 	log.Println("Starting consumers...")
 	go consumer(1)
