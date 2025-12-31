@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/segmentio/kafka-go"
@@ -15,35 +17,45 @@ func consumer(id int) {
 		Topic:          "jobs",
 		GroupID:        "worker-group",
 		GroupBalancers: []kafka.GroupBalancer{kafka.RangeGroupBalancer{}},
-		StartOffset:    kafka.LastOffset, // Start from the end if no offset exists
+		// StartOffset defaults to FirstOffset for consumer groups, which allows reading existing messages
 	})
 	defer reader.Close()
 
 	retryDelay := time.Second
 	maxRetryDelay := 10 * time.Second
+	timeoutCount := 0
 
 	for {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		msg, err := reader.ReadMessage(ctx)
 		cancel()
 
 		if err != nil {
-			if err == context.DeadlineExceeded {
-				log.Printf("consumer %d: timeout waiting for message, retrying...", id)
+			// Check if it's a timeout error (context deadline exceeded)
+			if err == context.DeadlineExceeded || err.Error() == "context deadline exceeded" {
+				timeoutCount++
+				// Only log timeout every 5th time to reduce noise
+				if timeoutCount%5 == 0 {
+					log.Printf("consumer %d: waiting for messages... (checked %d times)", id, timeoutCount)
+				}
+				// Use shorter delay for timeouts (no messages available)
+				time.Sleep(500 * time.Millisecond)
+				continue
 			} else {
 				log.Printf("consumer %d error: %v, retrying in %v...", id, err, retryDelay)
+				time.Sleep(retryDelay)
+				// Exponential backoff with max limit
+				retryDelay = time.Duration(float64(retryDelay) * 1.5)
+				if retryDelay > maxRetryDelay {
+					retryDelay = maxRetryDelay
+				}
+				continue
 			}
-			time.Sleep(retryDelay)
-			// Exponential backoff with max limit
-			retryDelay = time.Duration(float64(retryDelay) * 1.5)
-			if retryDelay > maxRetryDelay {
-				retryDelay = maxRetryDelay
-			}
-			continue
 		}
 
-		// Reset retry delay on success
+		// Reset retry delay and timeout count on success
 		retryDelay = time.Second
+		timeoutCount = 0
 
 		fmt.Printf(
 			"consumer %d consumed %s (partition=%d offset=%d)\n",

@@ -78,6 +78,8 @@ cd kafka
 go run producer.go topic_init.go
 ```
 
+**Important:** You must include both `producer.go` and `topic_init.go` because the producer uses helper functions from `topic_init.go`.
+
 The producer will:
 - Create 2 producer goroutines
 - Each producer sends 10 messages to the "jobs" topic
@@ -91,6 +93,8 @@ In another terminal, start the consumer:
 cd kafka
 go run consumer.go topic_init.go
 ```
+
+**Important:** You must include both `consumer.go` and `topic_init.go` because the consumer uses helper functions from `topic_init.go`.
 
 The consumer will:
 - Wait for Kafka to be ready
