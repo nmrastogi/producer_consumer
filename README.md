@@ -294,6 +294,141 @@ docker stop kafka && docker rm kafka
 docker ps -a --filter "name=kafka"
 ```
 
+## Comparison: In-Memory Channels vs Kafka
+
+This repository demonstrates two different approaches to producer-consumer patterns. Here's a detailed comparison:
+
+### In-Memory Channels (`producer_consumer.go`)
+
+**Architecture:**
+- Uses Go's built-in channels (`chan int`)
+- All communication happens in-process
+- Single application, single process
+
+**Characteristics:**
+| Aspect | Details |
+|--------|---------|
+| **Communication** | In-memory channels (buffered, capacity 100) |
+| **Persistence** | None - messages lost if process crashes |
+| **Scalability** | Limited to single process |
+| **Distribution** | Cannot distribute across machines |
+| **Setup** | No external dependencies |
+| **Performance** | Very fast (in-memory) |
+| **Complexity** | Simple, minimal code |
+| **Synchronization** | Uses `sync.WaitGroup` for coordination |
+| **Message Type** | Integers (simple) |
+| **Error Handling** | Basic (none in this example) |
+
+**Code Structure:**
+```go
+// Simple channel-based communication
+jobs := make(chan int, 100)  // Buffered channel
+jobs <- job                   // Send
+job := <-jobs                 // Receive
+```
+
+**Use Cases:**
+- ✅ Simple in-process job queues
+- ✅ Learning Go concurrency patterns
+- ✅ High-performance, low-latency scenarios
+- ✅ Single-machine applications
+- ✅ Temporary message passing
+
+---
+
+### Kafka-Based (`kafka/producer.go` + `kafka/consumer.go`)
+
+**Architecture:**
+- Uses Apache Kafka as message broker
+- Distributed system with external broker
+- Producers and consumers can run on different machines
+
+**Characteristics:**
+| Aspect | Details |
+|--------|---------|
+| **Communication** | Kafka topics with partitions |
+| **Persistence** | Messages persisted to disk |
+| **Scalability** | Horizontally scalable across machines |
+| **Distribution** | Can distribute across multiple servers |
+| **Setup** | Requires Kafka (Docker container) |
+| **Performance** | Fast but with network overhead |
+| **Complexity** | More complex, requires infrastructure |
+| **Synchronization** | Consumer groups handle coordination |
+| **Message Type** | Strings (can be any serialized data) |
+| **Error Handling** | Robust retry logic, exponential backoff |
+
+**Code Structure:**
+```go
+// Kafka-based communication
+writer := kafka.NewWriter(...)  // Producer
+writer.WriteMessages(ctx, msg)  // Send
+
+reader := kafka.NewReader(...)  // Consumer
+msg, err := reader.ReadMessage(ctx)  // Receive
+```
+
+**Use Cases:**
+- ✅ Distributed systems
+- ✅ Microservices communication
+- ✅ Event-driven architectures
+- ✅ Message durability requirements
+- ✅ Multi-machine deployments
+- ✅ Production systems requiring reliability
+
+---
+
+### Side-by-Side Comparison
+
+| Feature | In-Memory Channels | Kafka |
+|---------|-------------------|-------|
+| **Setup Complexity** | ⭐ Simple (no setup) | ⭐⭐⭐ Requires Kafka |
+| **Performance** | ⭐⭐⭐ Very Fast | ⭐⭐ Fast (network overhead) |
+| **Persistence** | ❌ None | ✅ Disk persistence |
+| **Scalability** | ❌ Single process | ✅ Horizontal scaling |
+| **Distribution** | ❌ Single machine | ✅ Multi-machine |
+| **Fault Tolerance** | ❌ Process crash = data loss | ✅ Survives crashes |
+| **Message Ordering** | ✅ Guaranteed | ✅ Per partition |
+| **Load Balancing** | Manual (channel distribution) | ✅ Automatic (consumer groups) |
+| **Replay Capability** | ❌ No | ✅ Yes (offset management) |
+| **Monitoring** | ❌ Limited | ✅ Rich (Kafka metrics) |
+| **Dependencies** | None | Kafka broker required |
+| **Best For** | Simple, fast, in-process | Production, distributed systems |
+
+### When to Use Each
+
+**Use In-Memory Channels when:**
+- Building simple, single-process applications
+- Need maximum performance (low latency)
+- Don't need message persistence
+- Learning Go concurrency
+- Temporary message passing
+- All components run in the same process
+
+**Use Kafka when:**
+- Building distributed systems
+- Need message persistence and durability
+- Multiple services need to communicate
+- Need horizontal scalability
+- Building event-driven architectures
+- Production systems requiring reliability
+- Need message replay capabilities
+
+### Code Complexity Comparison
+
+**In-Memory (`producer_consumer.go`):**
+- 43 lines of code
+- No external dependencies
+- Simple channel operations
+- Basic synchronization with WaitGroup
+
+**Kafka (`producer.go` + `consumer.go` + `topic_init.go`):**
+- ~250 lines of code total
+- External dependency (kafka-go library)
+- Topic management
+- Error handling and retry logic
+- Consumer group coordination
+- Partition management
+
 ## Notes
 
 - **Topic Management**: Both producer and consumer delete and recreate the "jobs" topic to ensure a fresh start
