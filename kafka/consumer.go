@@ -12,14 +12,17 @@ import (
 )
 
 func consumer(id int) {
+	// Use a fixed group ID so both consumers are in the same group and share partitions
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:        []string{"localhost:9092"},
 		Topic:          "jobs",
 		GroupID:        "worker-group",
-		GroupBalancers: []kafka.GroupBalancer{kafka.RangeGroupBalancer{}},
+		GroupBalancers: []kafka.GroupBalancer{kafka.RoundRobinGroupBalancer{}},
 		// StartOffset defaults to FirstOffset for consumer groups, which allows reading existing messages
 	})
 	defer reader.Close()
+	
+	log.Printf("Consumer %d started, waiting for partition assignment...", id)
 
 	retryDelay := time.Second
 	maxRetryDelay := 10 * time.Second

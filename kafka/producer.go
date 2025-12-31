@@ -13,22 +13,27 @@ func producer(id int){
 	write := kafka.NewWriter(kafka.WriterConfig{
 		Brokers: []string{"localhost:9092"},
 		Topic:   "jobs",
+		// Use hash partitioner with unique keys to distribute across partitions
+		Balancer: &kafka.Hash{},
 	})
 	defer write.Close();
 
 	for i :=0; i<10; i++{
 		job := fmt.Sprintf("job-%d", id*100+i)
-		fmt.Printf("producer %d: produced %s\n", id, job)
-		err := write.WriteMessages(context.Background(),
-			kafka.Message{
-				Key:   []byte(fmt.Sprintf("p%d", id)),
-				Value: []byte(job),
-			})
+		// Use unique key per message to distribute across partitions via hash
+		// Format: producer-id-message-index ensures good distribution
+		key := fmt.Sprintf("p%d-m%d", id, i)
+		msg := kafka.Message{
+			Key:   []byte(key),
+			Value: []byte(job),
+		}
+		err := write.WriteMessages(context.Background(), msg)
 		if err != nil {
 			log.Printf("producer %d error writing message: %v", id, err)
 			return
 		}
-	time.Sleep(time.Millisecond * 100);
+		fmt.Printf("producer %d: produced %s (key: %s)\n", id, job, key)
+		time.Sleep(time.Millisecond * 100);
 	}
 }
 
@@ -52,7 +57,8 @@ func main() {
 	go producer(1)
 	go producer(2)
 
-	// Wait for producers to finish (each produces 10 messages with 100ms delay = ~1 second)
-	time.Sleep(time.Second * 2)
+	// Wait for producers to finish (each produces 10 messages with 100ms delay = ~1.2 seconds)
+	// Add extra time to ensure both complete
+	time.Sleep(time.Second * 3)
 	fmt.Println("All producers completed")
 }
