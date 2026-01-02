@@ -41,10 +41,12 @@ go run producer_consumer.go
 ```
 
 **What it does:**
-- Creates 2 producers that each produce 10 jobs
+- Creates 2 producers that each produce 5 jobs (10 total)
 - Creates 2 consumers that consume jobs from a shared channel
 - Uses a buffered channel (capacity 100) to hold jobs
 - Demonstrates concurrent processing with goroutines
+- Uses `sync.WaitGroup` for synchronization
+- Gracefully closes channel when producers finish
 
 ### 2. Kafka Producer-Consumer
 
@@ -105,11 +107,13 @@ go run consumer.go topic_init.go
 
 The consumer will:
 - Wait for Kafka to be ready
-- Ensure the "jobs" topic exists
+- Delete and recreate the "jobs" topic (to start fresh and reset offsets)
 - Wait 5 seconds for Kafka to fully initialize
-- Start 2 consumer goroutines in a consumer group
+- Start 2 consumer goroutines in the "worker-group" consumer group
+- Kafka assigns partitions to consumers (with 3 partitions and 2 consumers, load is shared)
 - Process messages with retry logic and exponential backoff
 - Display consumed messages with partition and offset information
+- Both consumers will process messages from different partitions
 
 **Leave this terminal running** - the consumer will wait for messages.
 
@@ -126,11 +130,12 @@ go run producer.go topic_init.go
 
 The producer will:
 - Wait for Kafka to be ready
-- Ensure the "jobs" topic exists
+- Delete and recreate the "jobs" topic (to start fresh)
 - Create 2 producer goroutines
-- Each producer sends 10 messages to the "jobs" topic
-- Messages are formatted as "job-{id}"
-- Exit after all messages are sent
+- Each producer sends 10 messages (20 total) to the "jobs" topic
+- Uses Hash balancer with unique keys (p1-m0, p1-m1, etc.) to distribute messages across partitions
+- Messages are formatted as "job-{id}" with keys for partition distribution
+- Exit after all messages are sent (~3 seconds)
 
 #### Step 4: Stop and Clean Up Kafka
 
@@ -203,8 +208,10 @@ producer_consumer/
 │   ├── producer.go         # Kafka producer implementation
 │   ├── consumer.go         # Kafka consumer with retry logic
 │   └── topic_init.go       # Helper functions for topic creation and Kafka readiness
+├── diagram.html            # Interactive visual diagram (open in browser)
 ├── go.mod                  # Go module definition
 ├── go.sum                  # Dependency checksums
+├── .gitignore             # Git ignore rules
 └── README.md              # This file
 ```
 
@@ -221,19 +228,23 @@ producer_consumer/
 - **Channel closing**: Graceful shutdown pattern
 
 ### Kafka Pattern
-- **Producer**: Writing messages to Kafka topics
-- **Consumer Groups**: Multiple consumers sharing work
+- **Producer**: Writing messages to Kafka topics with Hash balancer for partition distribution
+- **Consumer Groups**: Multiple consumers sharing work via partition assignment
+- **Partition Distribution**: Hash balancer with unique keys distributes messages across 3 partitions
+- **Load Balancing**: With 2 consumers and 3 partitions, Kafka assigns partitions evenly
 - **Retry Logic**: Exponential backoff for error handling
-- **Topic Management**: Automatic topic creation
-- **Connection Handling**: Timeout-based message reading
+- **Topic Management**: Automatic topic deletion and recreation for fresh starts
+- **Connection Handling**: Timeout-based message reading with coordinator error handling
 
 ## Error Handling
 
 The Kafka consumer includes robust error handling:
 - **Retry mechanism**: Automatically retries on errors
 - **Exponential backoff**: Increases wait time between retries (up to 10 seconds)
-- **Timeout handling**: Uses context timeouts for message reading
+- **Timeout handling**: Uses context timeouts for message reading (10-second timeout)
 - **Connection recovery**: Handles Kafka coordinator unavailability
+- **Coordinator errors**: Gracefully handles "Group Coordinator Not Available" errors during initialization
+- **Context cleanup**: Explicitly cancels contexts to prevent resource leaks
 
 ## Complete Command Reference
 
@@ -273,12 +284,19 @@ docker ps -a --filter "name=kafka"
 
 ## Notes
 
-- The Kafka consumer automatically handles coordinator initialization errors
-- The consumer group "worker-group" allows multiple consumers to share the workload
-- The producer auto-creates the "jobs" topic if it doesn't exist
-- Kafka needs 30-60 seconds to fully initialize the consumer offsets topic
+- **In-Memory Version**: Produces 5 jobs per producer (10 total), uses `sync.WaitGroup` for synchronization
+- **Kafka Version**: Produces 10 jobs per producer (20 total), uses Hash balancer for partition distribution
+- **Topic Management**: Both producer and consumer delete and recreate the "jobs" topic to ensure a fresh start
+- **Partition Distribution**: The producer uses a Hash balancer with unique keys (p1-m0, p1-m1, etc.) to distribute messages across all 3 partitions
+- **Consumer Group**: The "worker-group" consumer group allows multiple consumers to share the workload via partition assignment
+- **Load Balancing**: With 2 consumers and 3 partitions, Kafka assigns:
+  - Consumer 1: Partitions 0 and 1
+  - Consumer 2: Partition 2
+- **Initialization**: Kafka needs 30-60 seconds to fully initialize the consumer offsets topic
+- **Error Handling**: The consumer automatically handles coordinator initialization errors and timeouts
+- **KRaft Mode**: The `KAFKA_OFFSETS_TOPIC_*` environment variables are important for KRaft mode to work properly
+- **Visual Diagram**: Open `diagram.html` in a browser to see an interactive comparison diagram
 - Both programs demonstrate concurrent processing patterns in Go
-- The `KAFKA_OFFSETS_TOPIC_*` environment variables are important for KRaft mode to work properly
 
 ## License
 
